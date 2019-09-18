@@ -468,11 +468,13 @@ end
 
 #-------------------------------------------------------------------------------
 # remove_provider
+remove_provider!(x::Nothing) = nothing
 function remove_provider!(x::Array)
     map(x) do u
         u[1] = replace(u[1], r".*/" => "")
         u
     end
+    nothing
 end
 
 #-------------------------------------------------------------------------------
@@ -514,45 +516,56 @@ end
 get_geo_names(x::Dict, colname::Nothing) = nothing
 function get_geo_names(x::Dict, colname::Array)
     # First try with multiple datasets
-    try
+    nm = try
+        x["datasets"];
+        "datasets"
+    catch
+        "dataset"
+    end
+
+    if nm == "datasets"
         result = map(colname) do u
             k = replace(u[1], r".*/" => "")
 
             z = retrieve(x["datasets"][u[1]], Regex("^" * u[2] * "\$"))
-            z = to_dataframe(z[1])
-            z = stack(z, names(z))
-            z[selectop, :variable] = string.(z[selectop, :variable])
-            names!(z, Symbol.(u[2:3]))
-            
-            insertcols!(z, 1, :dataset_code => k)
+            try
+                z = to_dataframe(z[1])
+                z = stack(z, names(z))
+                z[selectop, :variable] = string.(z[selectop, :variable])
+                names!(z, Symbol.(u[2:3]))
+                
+                insertcols!(z, 1, :dataset_code => k)
+            catch
+                z = nothing
+            end
             z
         end
-        return result
-    catch
+    elseif nm == "dataset"
         # Second try with only one dataset
-        try
-            result = map(colname) do u
-                subdict = x["dataset"]
-                k = replace(u[1], r".*/" => "")
+        result = map(colname) do u
+            subdict = x["dataset"]
+            k = replace(u[1], r".*/" => "")
 
-                keys_ = [string(key) for key in keys(subdict)]
-                k_ = keys_[
-                    occursin.(Ref(r"^dimensions_value[s]*_label[s]*$"), keys_)
-                ]
-            
-                z = subdict[k_[1]][u[2]]
+            keys_ = [string(key) for key in keys(subdict)]
+            k_ = keys_[
+                occursin.(Ref(r"^dimensions_value[s]*_label[s]*$"), keys_)
+            ]
+        
+            z = subdict[k_[1]][u[2]]
+            try
                 z = to_dataframe(z)
                 z = stack(z, names(z))
                 z[selectop, :variable] = string.(z[selectop, :variable])
                 names!(z, Symbol.(u[2:3]))
                 
                 insertcols!(z, 1, :dataset_code => k)
-                z
+            catch
+                z = nothing
             end
-            return result
-        catch
-            return nothing
+            z
         end
+    else
+        nothing
     end
 end
 
@@ -665,10 +678,12 @@ end
 #-------------------------------------------------------------------------------
 # original_value_to_string
 function original_value_to_string!(x::DataFrames.DataFrame, y)
-    if isa(y, Any)
-        try (y = string(y)) catch; end
-    elseif isa(y, Array{Any,1})
-        try (y = string.(y)) catch; end
+    y = if isa(y, Array{Any,1})
+        try string.(y) catch; y end
+    elseif isa(y, Any)
+        try string(y) catch; y end
+    else
+        y
     end
     x[selectop, :original_value] = y
     nothing
